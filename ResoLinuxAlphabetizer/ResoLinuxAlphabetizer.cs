@@ -20,6 +20,7 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 		Harmony harmony = new("com.troyborg.ResoLinuxAlphabetizer");
 		harmony.PatchAll();
 		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.Refresh to sort files and directories alphabetically");
+		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux");
 	}
 
 	// Helper method to sort string arrays
@@ -114,6 +115,18 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 			}
 
 			return injectedSorting ? newCodes : codes;
+		}
+	}
+
+	[HarmonyPatch(typeof(FileBrowser), "OnAttach")]
+	class FileBrowser_OnAttach_Patch {
+		static void Postfix(FileBrowser __instance) {
+			// Auto-load root directory on Linux if path is empty
+			if (__instance.Engine.Platform == Platform.Linux) {
+				if (string.IsNullOrWhiteSpace(__instance.CurrentPath.Value)) {
+					__instance.CurrentPath.Value = "/";
+				}
+			}
 		}
 	}
 }
