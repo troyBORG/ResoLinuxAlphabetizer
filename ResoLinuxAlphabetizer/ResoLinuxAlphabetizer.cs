@@ -18,7 +18,7 @@ public enum SortingAlgorithm {
 }
 
 public class ResoLinuxAlphabetizer : ResoniteMod {
-	internal const string VERSION_CONSTANT = "0.0.3";
+	internal const string VERSION_CONSTANT = "0.0.4";
 	public override string Name => "ResoLinuxAlphabetizer";
 	public override string Author => "troyBORG";
 	public override string Version => VERSION_CONSTANT;
