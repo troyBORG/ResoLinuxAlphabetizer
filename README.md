@@ -4,13 +4,17 @@ A [ResoniteModLoader](https://github.com/resonite-modding-group/ResoniteModLoade
 
 ## Problem
 
-On Linux, files and folders in the file browser are not being sorted alphabetically. This mod patches `FileBrowser.Refresh` to sort both files and directories alphabetically (case-insensitive) before displaying them.
+On Linux, files and folders in the file browser are not being sorted alphabetically. Additionally, the file browser doesn't automatically load the root directory ("/") when opened. This mod fixes both issues.
 
 Related issue: [folders sorted wrong #5156](https://github.com/Yellow-Dog-Man/Resonite-Issues/issues/5156)
 
 ## Solution
 
-This mod uses Harmony to patch the `FileBrowser.Refresh` method and injects sorting code that sorts both the `files` and `directories` arrays using `StringComparer.OrdinalIgnoreCase` before they are displayed in the UI.
+This mod uses Harmony to patch the file browser with two fixes:
+
+1. **Alphabetical Sorting**: Patches `FileBrowser.Refresh` to sort both files and directories alphabetically by their display names (filenames, not full paths) using case-insensitive comparison. This ensures the order matches what users see in the UI.
+
+2. **Auto-load Root Directory**: Patches `FileBrowser.OnAttach` to automatically set the initial path to "/" on Linux when the file browser opens, similar to how Android automatically loads "/mnt/sdcard".
 
 ## Installation
 
@@ -19,7 +23,9 @@ This mod uses Harmony to patch the `FileBrowser.Refresh` method and injects sort
    - Windows: `C:\Program Files (x86)\Steam\steamapps\common\Resonite\rml_mods`
    - Linux: `~/.steam/steam/steamapps/common/Resonite/rml_mods`
    - You can create it if it's missing, or if you launch the game once with ResoniteModLoader installed it will create this folder for you.
-3. Start the game. If you want to verify that the mod is working, check your Resonite logs for: `"ResoLinuxAlphabetizer: Patched FileBrowser.Refresh to sort files and directories alphabetically"`
+3. Start the game. If you want to verify that the mod is working, check your Resonite logs for:
+   - `"ResoLinuxAlphabetizer: Patched FileBrowser.Refresh to sort files and directories alphabetically"`
+   - `"ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux"`
 
 ## Building
 
