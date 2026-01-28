@@ -16,21 +16,29 @@ This mod uses Harmony to patch the file browser with two fixes:
 
 2. **Auto-load Root Directory**: Patches `FileBrowser.OnAttach` to automatically set the initial path to "/" on Linux when the file browser opens, similar to how Android automatically loads "/mnt/sdcard".
 
-## Sorting Algorithms
+## Sorting & Configuration
 
-The mod supports multiple sorting algorithms that can be changed in Mod Settings:
+The mod supports multiple sorting algorithms and an enable/disable toggle that can be changed in Mod Settings.
+
+### Sorting Algorithms
 
 - **OrdinalIgnoreCase** (Default) - Case-insensitive sorting. "File.txt" and "file.txt" are treated the same. Recommended for most users.
-- **Ordinal** - Case-sensitive sorting. "A.txt" comes before "a.txt".
+- **NeutralSort** - Case-insensitive, culture-neutral string comparison. Similar to OrdinalIgnoreCase but uses culture-neutral rules.
 - **NaturalSort** - Natural sorting that is case-insensitive and handles numbers correctly. Files are sorted as: "file1", "file2", "file10" instead of "file1", "file10", "file2". Also treats "File.txt" and "file.txt" as the same. Great for numbered files.
 - **FullPath** - Sorts by full file path instead of just the filename. Useful for organizing by directory structure.
 
-### Changing the Sorting Algorithm
+### Enable/Disable Toggle
+
+- **Enabled** (bool) - When `true`, the mod's sorting is applied.
+- When `false`, the mod does not modify the file order at all (you get vanilla behavior). This is useful for A/B testing the effect of the mod.
+
+### Changing the Sorting Options
 
 1. Open Resonite and go to **Mods** → **Mod Settings**
 2. Find **ResoLinuxAlphabetizer** in the list
 3. Change the **SortingMethod** dropdown to your preferred algorithm
-4. **Restart Resonite** for the change to take effect (algorithm is loaded at mod initialization)
+4. Toggle **Enabled** on/off to compare behavior with and without the mod's sorting
+5. **Restart Resonite** for the change to take effect (algorithm and enabled flag are loaded at mod initialization)
 
 ## Installation
 

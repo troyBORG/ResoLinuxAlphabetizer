@@ -11,10 +11,10 @@ namespace ResoLinuxAlphabetizer;
 // Fixes file browser sorting on Linux - https://github.com/Yellow-Dog-Man/Resonite-Issues/issues/5156
 
 public enum SortingAlgorithm {
-	OrdinalIgnoreCase,      // Default: Case-insensitive using OrdinalIgnoreCase
-	Ordinal,                // Case-sensitive using Ordinal
-	NaturalSort,            // Natural sort (case-insensitive, handles numbers: file1, file2, file10)
-	FullPath                // Sort by full path instead of filename
+	OrdinalIgnoreCase,           // Default: Case-insensitive using OrdinalIgnoreCase
+	NeutralSort,                 // Case-insensitive using culture-neutral comparison
+	NaturalSort,                 // Natural sort (case-insensitive, handles numbers: file1, file2, file10)
+	FullPath                     // Sort by full path instead of filename
 }
 
 public class ResoLinuxAlphabetizer : ResoniteMod {
@@ -24,22 +24,30 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 	public override string Version => VERSION_CONSTANT;
 	public override string Link => "https://github.com/troyBORG/ResoLinuxAlphabetizer/";
 
-	// Config option: Choose sorting algorithm
+	// Config options
 	[AutoRegisterConfigKey]
 	private static readonly ModConfigurationKey<SortingAlgorithm> KEY_SORTING_METHOD = 
 		new ModConfigurationKey<SortingAlgorithm>(
 			"SortingMethod", 
 			"Sorting algorithm to use:\n" +
 			"OrdinalIgnoreCase - Case-insensitive (default, recommended)\n" +
-			"Ordinal - Case-sensitive\n" +
+			"NeutralSort - Case-insensitive, culture-neutral compare\n" +
 			"NaturalSort - Natural sort (case-insensitive, handles numbers: file1, file2, file10)\n" +
 			"FullPath - Sort by full path instead of filename",
 			() => SortingAlgorithm.OrdinalIgnoreCase);
+
+	[AutoRegisterConfigKey]
+	private static readonly ModConfigurationKey<bool> KEY_ENABLED =
+		new ModConfigurationKey<bool>(
+			"Enabled",
+			"Enable/disable the mod's sorting. Turn off to compare behavior.",
+			() => true);
 
 	private ModConfiguration? Config;
 	
 	// Static field to store current algorithm (used by static SortStringArray method)
 	private static SortingAlgorithm CurrentSortingAlgorithm = SortingAlgorithm.OrdinalIgnoreCase;
+	private static bool SortingEnabled = true;
 
 	public override void OnEngineInit() {
 		// Get configuration
@@ -60,17 +68,28 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 		}
 		CurrentSortingAlgorithm = currentMethod;
 
+		// Read enabled flag
+		bool enabled = true;
+		if (Config != null && !Config.TryGetValue(KEY_ENABLED, out enabled)) {
+			Config.Set(KEY_ENABLED, true);
+			enabled = true;
+		}
+		SortingEnabled = enabled;
+
 		Harmony harmony = new("com.troyborg.ResoLinuxAlphabetizer");
 		harmony.PatchAll();
 		Msg($"ResoLinuxAlphabetizer: Patched FileBrowser.Refresh to sort files and directories alphabetically");
 		Msg($"ResoLinuxAlphabetizer: Using sorting algorithm: {currentMethod}");
 		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux");
-		Msg("ResoLinuxAlphabetizer: You can change the sorting algorithm in Mod Settings!");
+		Msg("ResoLinuxAlphabetizer: You can change the sorting algorithm or disable sorting in Mod Settings!");
 	}
 
 	// Helper method to sort string arrays using the configured algorithm
 	private static void SortStringArray(string[] array) {
 		if (array != null && array.Length > 0) {
+			if (!SortingEnabled) {
+				return;
+			}
 			// Use static field for current algorithm (updated in OnEngineInit)
 			var algorithm = CurrentSortingAlgorithm;
 			
@@ -93,8 +112,8 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 				SortingAlgorithm.OrdinalIgnoreCase => 
 					string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
 				
-				SortingAlgorithm.Ordinal => 
-					string.Compare(nameA, nameB, StringComparison.Ordinal),
+					SortingAlgorithm.NeutralSort =>
+						string.Compare(nameA, nameB, StringComparison.InvariantCultureIgnoreCase),
 				
 				SortingAlgorithm.NaturalSort => 
 					NaturalCompare(nameA, nameB),
