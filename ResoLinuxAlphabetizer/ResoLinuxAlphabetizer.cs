@@ -47,6 +47,12 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 		// Get configuration
 		Config = GetConfiguration();
 		
+		// Save default config values to file so they appear in Mod Settings
+		// This is required for the config to show up in the in-game mod settings UI
+		if (Config != null) {
+			Config.Save(true);
+		}
+		
 		// Read current sorting method and store in static field
 		SortingAlgorithm currentMethod = SortingAlgorithm.OrdinalIgnoreCase;
 		if (Config != null && !Config.TryGetValue(KEY_SORTING_METHOD, out currentMethod)) {
