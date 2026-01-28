@@ -21,9 +21,8 @@ This mod uses Harmony to patch the file browser with two fixes:
 The mod supports multiple sorting algorithms that can be changed in Mod Settings:
 
 - **OrdinalIgnoreCase** (Default) - Case-insensitive sorting. "File.txt" and "file.txt" are treated the same. Recommended for most users.
-- **InvariantCultureIgnoreCase** - Case-insensitive with culture-specific rules. Useful for international character sets.
 - **Ordinal** - Case-sensitive sorting. "A.txt" comes before "a.txt".
-- **NaturalSort** - Natural sorting that handles numbers correctly. Files are sorted as: "file1", "file2", "file10" instead of "file1", "file10", "file2". Great for numbered files.
+- **NaturalSort** - Natural sorting that is case-insensitive and handles numbers correctly. Files are sorted as: "file1", "file2", "file10" instead of "file1", "file10", "file2". Also treats "File.txt" and "file.txt" as the same. Great for numbered files.
 - **FullPath** - Sorts by full file path instead of just the filename. Useful for organizing by directory structure.
 
 ### Changing the Sorting Algorithm

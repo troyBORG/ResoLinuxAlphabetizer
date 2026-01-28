@@ -12,9 +12,8 @@ namespace ResoLinuxAlphabetizer;
 
 public enum SortingAlgorithm {
 	OrdinalIgnoreCase,      // Default: Case-insensitive using OrdinalIgnoreCase
-	InvariantCultureIgnoreCase, // Case-insensitive using InvariantCulture
 	Ordinal,                // Case-sensitive using Ordinal
-	NaturalSort,            // Natural sort (handles numbers better: file1, file2, file10)
+	NaturalSort,            // Natural sort (case-insensitive, handles numbers: file1, file2, file10)
 	FullPath                // Sort by full path instead of filename
 }
 
@@ -32,9 +31,8 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 			"SortingMethod", 
 			"Sorting algorithm to use:\n" +
 			"OrdinalIgnoreCase - Case-insensitive (default, recommended)\n" +
-			"InvariantCultureIgnoreCase - Case-insensitive with culture rules\n" +
 			"Ordinal - Case-sensitive\n" +
-			"NaturalSort - Natural sort (file1, file2, file10)\n" +
+			"NaturalSort - Natural sort (case-insensitive, handles numbers: file1, file2, file10)\n" +
 			"FullPath - Sort by full path instead of filename",
 			() => SortingAlgorithm.OrdinalIgnoreCase);
 
@@ -90,31 +88,29 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 					if (string.IsNullOrEmpty(nameB)) nameB = b;
 				}
 				
-				// Apply selected sorting algorithm
-				return algorithm switch {
-					SortingAlgorithm.OrdinalIgnoreCase => 
-						string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
-					
-					SortingAlgorithm.InvariantCultureIgnoreCase => 
-						string.Compare(nameA, nameB, StringComparison.InvariantCultureIgnoreCase),
-					
-					SortingAlgorithm.Ordinal => 
-						string.Compare(nameA, nameB, StringComparison.Ordinal),
-					
-					SortingAlgorithm.NaturalSort => 
-						NaturalCompare(nameA, nameB),
-					
-					SortingAlgorithm.FullPath => 
-						string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
-					
-					_ => string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase)
-				};
+			// Apply selected sorting algorithm
+			return algorithm switch {
+				SortingAlgorithm.OrdinalIgnoreCase => 
+					string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
+				
+				SortingAlgorithm.Ordinal => 
+					string.Compare(nameA, nameB, StringComparison.Ordinal),
+				
+				SortingAlgorithm.NaturalSort => 
+					NaturalCompare(nameA, nameB),
+				
+				SortingAlgorithm.FullPath => 
+					string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
+				
+				_ => string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase)
+			};
 			});
 		}
 	}
 
-	// Natural sort comparison (handles numbers in strings better)
+	// Natural sort comparison (case-insensitive, handles numbers in strings better)
 	// Example: "file1", "file2", "file10" instead of "file1", "file10", "file2"
+	// Also treats "File.txt" and "file.txt" as the same (case-insensitive)
 	private static int NaturalCompare(string a, string b) {
 		if (a == null) return b == null ? 0 : -1;
 		if (b == null) return 1;
@@ -124,7 +120,6 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 			if (char.IsDigit(a[i]) && char.IsDigit(b[j])) {
 				// Both are digits - compare as numbers
 				int numA = 0, numB = 0;
-				int startA = i, startB = j;
 				
 				// Parse number from a
 				while (i < a.Length && char.IsDigit(a[i])) {
@@ -142,8 +137,10 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 					return numA.CompareTo(numB);
 				}
 			} else {
-				// Compare characters case-insensitively
-				int cmp = char.ToLowerInvariant(a[i]).CompareTo(char.ToLowerInvariant(b[j]));
+				// Compare characters case-insensitively (using OrdinalIgnoreCase logic)
+				char charA = char.ToLowerInvariant(a[i]);
+				char charB = char.ToLowerInvariant(b[j]);
+				int cmp = charA.CompareTo(charB);
 				if (cmp != 0) return cmp;
 				i++;
 				j++;
