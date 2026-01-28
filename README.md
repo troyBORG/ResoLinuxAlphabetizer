@@ -38,7 +38,7 @@ The mod supports multiple sorting algorithms and an enable/disable toggle that c
 2. Find **ResoLinuxAlphabetizer** in the list
 3. Change the **SortingMethod** dropdown to your preferred algorithm
 4. Toggle **Enabled** on/off to compare behavior with and without the mod's sorting
-5. **Restart Resonite** for the change to take effect (algorithm and enabled flag are loaded at mod initialization)
+5. Changes take effect the next time the file browser refreshes (use the **Reload** button or go up/back into a folder). No game restart required.
 
 ## Installation
 

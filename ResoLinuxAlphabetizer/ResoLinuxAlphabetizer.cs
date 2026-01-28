@@ -43,7 +43,7 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 			"Enable/disable the mod's sorting. Turn off to compare behavior.",
 			() => true);
 
-	private ModConfiguration? Config;
+private static ModConfiguration? Config;
 	
 	// Static field to store current algorithm (used by static SortStringArray method)
 	private static SortingAlgorithm CurrentSortingAlgorithm = SortingAlgorithm.OrdinalIgnoreCase;
@@ -86,34 +86,45 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 
 	// Helper method to sort string arrays using the configured algorithm
 	private static void SortStringArray(string[] array) {
-		if (array != null && array.Length > 0) {
-			if (!SortingEnabled) {
-				return;
+		if (array == null || array.Length == 0)
+			return;
+
+		// Always read latest config so changes in Mod Settings apply in real time
+		SortingAlgorithm algorithm = CurrentSortingAlgorithm;
+		bool enabled = SortingEnabled;
+		if (Config != null) {
+			if (Config.TryGetValue(KEY_ENABLED, out bool cfgEnabled)) {
+				enabled = cfgEnabled;
 			}
-			// Use static field for current algorithm (updated in OnEngineInit)
-			var algorithm = CurrentSortingAlgorithm;
+			if (Config.TryGetValue(KEY_SORTING_METHOD, out SortingAlgorithm cfgAlg)) {
+				algorithm = cfgAlg;
+			}
+		}
+
+		if (!enabled)
+			return;
+
+		Array.Sort(array, (a, b) => {
+			string nameA, nameB;
 			
-			Array.Sort(array, (a, b) => {
-				string nameA, nameB;
-				
-				// Get comparison strings based on algorithm
-				if (algorithm == SortingAlgorithm.FullPath) {
-					nameA = a;
-					nameB = b;
-				} else {
-					nameA = Path.GetFileName(a);
-					nameB = Path.GetFileName(b);
-					if (string.IsNullOrEmpty(nameA)) nameA = a;
-					if (string.IsNullOrEmpty(nameB)) nameB = b;
-				}
-				
+			// Get comparison strings based on algorithm
+			if (algorithm == SortingAlgorithm.FullPath) {
+				nameA = a;
+				nameB = b;
+			} else {
+				nameA = Path.GetFileName(a);
+				nameB = Path.GetFileName(b);
+				if (string.IsNullOrEmpty(nameA)) nameA = a;
+				if (string.IsNullOrEmpty(nameB)) nameB = b;
+			}
+			
 			// Apply selected sorting algorithm
 			return algorithm switch {
 				SortingAlgorithm.OrdinalIgnoreCase => 
 					string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
 				
-					SortingAlgorithm.NeutralSort =>
-						string.Compare(nameA, nameB, StringComparison.InvariantCultureIgnoreCase),
+				SortingAlgorithm.NeutralSort =>
+					string.Compare(nameA, nameB, StringComparison.InvariantCultureIgnoreCase),
 				
 				SortingAlgorithm.NaturalSort => 
 					NaturalCompare(nameA, nameB),
@@ -123,8 +134,7 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 				
 				_ => string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase)
 			};
-			});
-		}
+		});
 	}
 
 	// Natural sort comparison (case-insensitive, handles numbers in strings better)
