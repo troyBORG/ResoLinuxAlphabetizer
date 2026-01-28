@@ -25,6 +25,7 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 
 	// Helper method to sort string arrays by filename (not full path)
 	// This ensures files are sorted by their display name, not their full path
+	// Uses case-insensitive comparison so "File.txt" and "file.txt" are treated the same
 	private static void SortStringArray(string[] array) {
 		if (array != null && array.Length > 0) {
 			Array.Sort(array, (a, b) => {
@@ -32,6 +33,7 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 				string nameB = Path.GetFileName(b);
 				if (string.IsNullOrEmpty(nameA)) nameA = a;
 				if (string.IsNullOrEmpty(nameB)) nameB = b;
+				// Case-insensitive comparison: "A.txt" and "a.txt" are treated the same
 				return StringComparer.OrdinalIgnoreCase.Compare(nameA, nameB);
 			});
 		}
