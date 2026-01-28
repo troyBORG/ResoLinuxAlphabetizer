@@ -23,10 +23,17 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux");
 	}
 
-	// Helper method to sort string arrays
+	// Helper method to sort string arrays by filename (not full path)
+	// This ensures files are sorted by their display name, not their full path
 	private static void SortStringArray(string[] array) {
 		if (array != null && array.Length > 0) {
-			Array.Sort(array, StringComparer.OrdinalIgnoreCase);
+			Array.Sort(array, (a, b) => {
+				string nameA = Path.GetFileName(a);
+				string nameB = Path.GetFileName(b);
+				if (string.IsNullOrEmpty(nameA)) nameA = a;
+				if (string.IsNullOrEmpty(nameB)) nameB = b;
+				return StringComparer.OrdinalIgnoreCase.Compare(nameA, nameB);
+			});
 		}
 	}
 
@@ -92,25 +99,62 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 			}
 
 			// Second pass: inject sorting calls
+			// Look for the pattern: await ToWorld, then check fetchedPath, then GenerateContent
+			// We want to inject sorting right after ToWorld but before GenerateContent
 			bool injectedSorting = false;
+			bool foundToWorld = false;
+			
 			for (int i = 0; i < codes.Count; i++) {
 				newCodes.Add(codes[i]);
 				
-				// Look for "await default(ToWorld)" - inject sorting right after
-				if (!injectedSorting && 
+				// Look for "await default(ToWorld)" call
+				if (!foundToWorld && 
 				    codes[i].opcode == OpCodes.Call && 
 				    codes[i].operand != null &&
 				    codes[i].operand.ToString()?.Contains("ToWorld") == true) {
-					// Inject sorting after ToWorld
+					foundToWorld = true;
+					// Continue to find a good insertion point after ToWorld
+					continue;
+				}
+				
+				// After ToWorld, look for GenerateContent call - inject sorting right before it
+				if (foundToWorld && !injectedSorting && 
+				    codes[i].opcode == OpCodes.Call && 
+				    codes[i].operand != null &&
+				    codes[i].operand.ToString()?.Contains("GenerateContent") == true) {
+					// Inject sorting before GenerateContent
 					if (filesLocalIndex >= 0) {
-						newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, filesLocalIndex));
-						newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
+						newCodes.Insert(newCodes.Count - 1, new CodeInstruction(OpCodes.Ldloc_S, filesLocalIndex));
+						newCodes.Insert(newCodes.Count - 1, new CodeInstruction(OpCodes.Call, sortMethod));
 					}
 					if (directoriesLocalIndex >= 0) {
-						newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, directoriesLocalIndex));
-						newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
+						newCodes.Insert(newCodes.Count - 1, new CodeInstruction(OpCodes.Ldloc_S, directoriesLocalIndex));
+						newCodes.Insert(newCodes.Count - 1, new CodeInstruction(OpCodes.Call, sortMethod));
 					}
 					injectedSorting = true;
+				}
+			}
+
+			// Fallback: if we didn't find GenerateContent, inject after ToWorld
+			if (foundToWorld && !injectedSorting) {
+				// Find the position right after ToWorld in newCodes
+				for (int i = newCodes.Count - 1; i >= 0; i--) {
+					if (newCodes[i].opcode == OpCodes.Call && 
+					    newCodes[i].operand != null &&
+					    newCodes[i].operand.ToString()?.Contains("ToWorld") == true) {
+						// Insert after ToWorld
+						int insertPos = i + 1;
+						if (directoriesLocalIndex >= 0) {
+							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Ldloc_S, directoriesLocalIndex));
+							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Call, sortMethod));
+						}
+						if (filesLocalIndex >= 0) {
+							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Ldloc_S, filesLocalIndex));
+							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Call, sortMethod));
+						}
+						injectedSorting = true;
+						break;
+					}
 				}
 			}
 
