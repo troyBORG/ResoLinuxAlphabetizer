@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.Emit;
 using FrooxEngine;
 using HarmonyLib;
@@ -10,277 +11,106 @@ using ResoniteModLoader;
 namespace ResoLinuxAlphabetizer;
 // Fixes file browser sorting on Linux - https://github.com/Yellow-Dog-Man/Resonite-Issues/issues/5156
 
-public enum SortingAlgorithm {
-	OrdinalIgnoreCase,           // Default: Case-insensitive using OrdinalIgnoreCase
-	NeutralSort,                 // Case-insensitive using culture-neutral comparison
-	NaturalSort,                 // Natural sort (case-insensitive, handles numbers: file1, file2, file10)
-	FullPath                     // Sort by full path instead of filename
-}
-
 public class ResoLinuxAlphabetizer : ResoniteMod {
-	internal const string VERSION_CONSTANT = "0.0.4";
+	internal const string VERSION_CONSTANT = "0.0.6";
 	public override string Name => "ResoLinuxAlphabetizer";
 	public override string Author => "troyBORG";
 	public override string Version => VERSION_CONSTANT;
 	public override string Link => "https://github.com/troyBORG/ResoLinuxAlphabetizer/";
 
-	// Config options
-	[AutoRegisterConfigKey]
-	private static readonly ModConfigurationKey<SortingAlgorithm> KEY_SORTING_METHOD = 
-		new ModConfigurationKey<SortingAlgorithm>(
-			"SortingMethod", 
-			"Sorting algorithm to use:\n" +
-			"OrdinalIgnoreCase - Case-insensitive (default, recommended)\n" +
-			"NeutralSort - Case-insensitive, culture-neutral compare\n" +
-			"NaturalSort - Natural sort (case-insensitive, handles numbers: file1, file2, file10)\n" +
-			"FullPath - Sort by full path instead of filename",
-			() => SortingAlgorithm.OrdinalIgnoreCase);
-
 	[AutoRegisterConfigKey]
 	private static readonly ModConfigurationKey<bool> KEY_ENABLED =
 		new ModConfigurationKey<bool>(
 			"Enabled",
-			"Enable/disable the mod's sorting. Turn off to compare behavior.",
+			"Enable/disable the mod's sorting. Turn off to compare with vanilla (random) order.",
 			() => true);
 
-private static ModConfiguration? Config;
-	
-	// Static field to store current algorithm (used by static SortStringArray method)
-	private static SortingAlgorithm CurrentSortingAlgorithm = SortingAlgorithm.OrdinalIgnoreCase;
-	private static bool SortingEnabled = true;
+	private static ModConfiguration? Config;
+
+	// Case-insensitive sort by filename (display name)
+	private static readonly StringComparer FileNameComparer = StringComparer.OrdinalIgnoreCase;
 
 	public override void OnEngineInit() {
-		// Get configuration
 		Config = GetConfiguration();
-		
-		// Save default config values to file so they appear in Mod Settings
-		// This is required for the config to show up in the in-game mod settings UI
-		if (Config != null) {
+		if (Config != null)
 			Config.Save(true);
-		}
-		
-		// Read current sorting method and store in static field
-		SortingAlgorithm currentMethod = SortingAlgorithm.OrdinalIgnoreCase;
-		if (Config != null && !Config.TryGetValue(KEY_SORTING_METHOD, out currentMethod)) {
-			// Set default if not found
-			Config.Set(KEY_SORTING_METHOD, SortingAlgorithm.OrdinalIgnoreCase);
-			currentMethod = SortingAlgorithm.OrdinalIgnoreCase;
-		}
-		CurrentSortingAlgorithm = currentMethod;
 
-		// Read enabled flag
-		bool enabled = true;
-		if (Config != null && !Config.TryGetValue(KEY_ENABLED, out enabled)) {
-			Config.Set(KEY_ENABLED, true);
-			enabled = true;
-		}
-		SortingEnabled = enabled;
-
-		Harmony harmony = new("com.troyborg.ResoLinuxAlphabetizer");
-		harmony.PatchAll();
-		Msg($"ResoLinuxAlphabetizer: Patched FileBrowser.Refresh to sort files and directories alphabetically");
-		Msg($"ResoLinuxAlphabetizer: Using sorting algorithm: {currentMethod}");
-		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux");
-		Msg("ResoLinuxAlphabetizer: You can change the sorting algorithm or disable sorting in Mod Settings!");
+		new Harmony("com.troyborg.ResoLinuxAlphabetizer").PatchAll();
+		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.Refresh to sort files and directories alphabetically (case-insensitive by name).");
+		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux.");
+		Msg("ResoLinuxAlphabetizer: Toggle \"Enabled\" in Mod Settings to turn sorting on/off.");
 	}
 
-	// Helper method to sort string arrays using the configured algorithm
-	private static void SortStringArray(string[] array) {
-		if (array == null || array.Length == 0)
+	private static bool IsSortingEnabled() {
+		if (Config == null) return true;
+		return Config.TryGetValue(KEY_ENABLED, out bool enabled) && enabled;
+	}
+
+	// Sort in place: case-insensitive by filename
+	private static void SortByFileName(string[]? array) {
+		if (array == null || array.Length == 0 || !IsSortingEnabled())
 			return;
-
-		// Always read latest config so changes in Mod Settings apply in real time
-		SortingAlgorithm algorithm = CurrentSortingAlgorithm;
-		bool enabled = SortingEnabled;
-		if (Config != null) {
-			if (Config.TryGetValue(KEY_ENABLED, out bool cfgEnabled)) {
-				enabled = cfgEnabled;
-			}
-			if (Config.TryGetValue(KEY_SORTING_METHOD, out SortingAlgorithm cfgAlg)) {
-				algorithm = cfgAlg;
-			}
-		}
-
-		if (!enabled)
-			return;
-
 		Array.Sort(array, (a, b) => {
-			string nameA, nameB;
-			
-			// Get comparison strings based on algorithm
-			if (algorithm == SortingAlgorithm.FullPath) {
-				nameA = a;
-				nameB = b;
-			} else {
-				nameA = Path.GetFileName(a);
-				nameB = Path.GetFileName(b);
-				if (string.IsNullOrEmpty(nameA)) nameA = a;
-				if (string.IsNullOrEmpty(nameB)) nameB = b;
-			}
-			
-			// Apply selected sorting algorithm
-			return algorithm switch {
-				SortingAlgorithm.OrdinalIgnoreCase => 
-					string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
-				
-				SortingAlgorithm.NeutralSort =>
-					string.Compare(nameA, nameB, StringComparison.InvariantCultureIgnoreCase),
-				
-				SortingAlgorithm.NaturalSort => 
-					NaturalCompare(nameA, nameB),
-				
-				SortingAlgorithm.FullPath => 
-					string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase),
-				
-				_ => string.Compare(nameA, nameB, StringComparison.OrdinalIgnoreCase)
-			};
+			string na = string.IsNullOrEmpty(Path.GetFileName(a)) ? a : Path.GetFileName(a);
+			string nb = string.IsNullOrEmpty(Path.GetFileName(b)) ? b : Path.GetFileName(b);
+			return FileNameComparer.Compare(na, nb);
 		});
 	}
 
-	// Natural sort comparison (case-insensitive, handles numbers in strings better)
-	// Example: "file1", "file2", "file10" instead of "file1", "file10", "file2"
-	// Also treats "File.txt" and "file.txt" as the same (case-insensitive)
-	private static int NaturalCompare(string a, string b) {
-		if (a == null) return b == null ? 0 : -1;
-		if (b == null) return 1;
-		
-		int i = 0, j = 0;
-		while (i < a.Length && j < b.Length) {
-			if (char.IsDigit(a[i]) && char.IsDigit(b[j])) {
-				// Both are digits - compare as numbers
-				int numA = 0, numB = 0;
-				
-				// Parse number from a
-				while (i < a.Length && char.IsDigit(a[i])) {
-					numA = numA * 10 + (a[i] - '0');
-					i++;
-				}
-				
-				// Parse number from b
-				while (j < b.Length && char.IsDigit(b[j])) {
-					numB = numB * 10 + (b[j] - '0');
-					j++;
-				}
-				
-				if (numA != numB) {
-					return numA.CompareTo(numB);
-				}
-			} else {
-				// Compare characters case-insensitively (using OrdinalIgnoreCase logic)
-				char charA = char.ToLowerInvariant(a[i]);
-				char charB = char.ToLowerInvariant(b[j]);
-				int cmp = charA.CompareTo(charB);
-				if (cmp != 0) return cmp;
-				i++;
-				j++;
-			}
-		}
-		
-		// One string is a prefix of the other
-		return (a.Length - i).CompareTo(b.Length - j);
+	private static void SortListByFileName(List<string>? list) {
+		if (list == null || list.Count == 0 || !IsSortingEnabled())
+			return;
+		list.Sort((a, b) => {
+			string na = string.IsNullOrEmpty(Path.GetFileName(a)) ? a : Path.GetFileName(a);
+			string nb = string.IsNullOrEmpty(Path.GetFileName(b)) ? b : Path.GetFileName(b);
+			return FileNameComparer.Compare(na, nb);
+		});
 	}
 
+	// Stupid-simple: after Refresh(), sort any string[] or List<string> on the browser instance
 	[HarmonyPatch(typeof(FileBrowser), "Refresh")]
 	class FileBrowser_Refresh_Patch {
-		// Postfix to ensure sorting happens - this runs after Refresh completes
-		// but we need to sort before items are displayed, so we still use transpiler
 		static void Postfix(FileBrowser __instance) {
-			// This won't work for local variables, but serves as a fallback check
-		}
-
-		static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
-			var codes = instructions.ToList();
-			var newCodes = new List<CodeInstruction>();
-			
-			int filesLocalIndex = -1;
-			int directoriesLocalIndex = -1;
-			// Get static method
-			var sortMethod = typeof(ResoLinuxAlphabetizer).GetMethod("SortStringArray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-			// First pass: find local variable indices
-			for (int i = 0; i < codes.Count; i++) {
-				var code = codes[i];
-				
-				// Find Directory.GetFiles and its stloc
-				if (code.opcode == OpCodes.Call && 
-				    code.operand != null && 
-				    code.operand.ToString()?.Contains("GetFiles") == true) {
-					for (int j = i + 1; j < codes.Count && j < i + 5; j++) {
-						if (codes[j].opcode == OpCodes.Stloc_S) {
-							if (codes[j].operand is LocalBuilder lb) {
-								filesLocalIndex = lb.LocalIndex;
-							} else if (codes[j].operand is int idx) {
-								filesLocalIndex = idx;
-							}
-							break;
-						} else if (codes[j].opcode == OpCodes.Stloc) {
-							if (codes[j].operand is LocalBuilder lb) {
-								filesLocalIndex = lb.LocalIndex;
-							} else if (codes[j].operand is int idx) {
-								filesLocalIndex = idx;
-							}
-							break;
-						}
-					}
-				}
-				
-				// Find Directory.GetDirectories and its stloc
-				if (code.opcode == OpCodes.Call && 
-				    code.operand != null && 
-				    code.operand.ToString()?.Contains("GetDirectories") == true) {
-					for (int j = i + 1; j < codes.Count && j < i + 5; j++) {
-						if (codes[j].opcode == OpCodes.Stloc_S) {
-							if (codes[j].operand is LocalBuilder lb) {
-								directoriesLocalIndex = lb.LocalIndex;
-							} else if (codes[j].operand is int idx) {
-								directoriesLocalIndex = idx;
-							}
-							break;
-						} else if (codes[j].opcode == OpCodes.Stloc) {
-							if (codes[j].operand is LocalBuilder lb) {
-								directoriesLocalIndex = lb.LocalIndex;
-							} else if (codes[j].operand is int idx) {
-								directoriesLocalIndex = idx;
-							}
-							break;
-						}
-					}
+			if (!IsSortingEnabled()) return;
+			var t = __instance.GetType();
+			foreach (var f in t.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)) {
+				if (f.FieldType == typeof(string[])) {
+					var arr = f.GetValue(__instance) as string[];
+					SortByFileName(arr);
+				} else if (f.FieldType == typeof(List<string>)) {
+					var list = f.GetValue(__instance) as List<string>;
+					SortListByFileName(list);
 				}
 			}
+		}
 
-			// Second pass: inject sorting calls right after directories array is assigned
-			// This is the most reliable approach - inject immediately after GetDirectories + stloc
-			bool injectedSorting = false;
-			
+		// Backup: inject sort calls after GetFiles/GetDirectories if reflection didn't find fields
+		static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+			var codes = instructions.ToList();
+			var sortMethod = typeof(ResoLinuxAlphabetizer).GetMethod("SortByFileName", BindingFlags.NonPublic | BindingFlags.Static);
+			if (sortMethod == null) return codes;
+
+			int filesLocalIndex = -1, directoriesLocalIndex = -1;
+
+			for (int i = 0; i < codes.Count; i++) {
+				var code = codes[i];
+				if (code.opcode != OpCodes.Call || code.operand?.ToString() == null) continue;
+
+				string call = code.operand.ToString();
+				if (call.Contains("GetFiles"))
+					TryReadStloc(codes, i + 1, 5, ref filesLocalIndex);
+				else if (call.Contains("GetDirectories"))
+					TryReadStloc(codes, i + 1, 5, ref directoriesLocalIndex);
+			}
+
+			var newCodes = new List<CodeInstruction>();
+			bool injected = false;
 			for (int i = 0; i < codes.Count; i++) {
 				newCodes.Add(codes[i]);
-				
-				// Look for GetDirectories call followed by stloc
-				if (!injectedSorting && 
-				    codes[i].opcode == OpCodes.Call && 
-				    codes[i].operand != null &&
-				    codes[i].operand.ToString()?.Contains("GetDirectories") == true) {
-					// Check if next instruction is stloc for directories
-					if (i + 1 < codes.Count) {
-						var nextCode = codes[i + 1];
-						if ((nextCode.opcode == OpCodes.Stloc_S || nextCode.opcode == OpCodes.Stloc) &&
-						    directoriesLocalIndex >= 0) {
-							// We've already added codes[i], now add the stloc, then inject sorting
-							// But wait, we need to add the stloc first, then inject
-							// Actually, let's inject after we add the stloc in the next iteration
-							continue;
-						}
-					}
-				}
-				
-				// If previous was GetDirectories and this is stloc, inject sorting after stloc
-				if (!injectedSorting && i > 0 &&
-				    (codes[i].opcode == OpCodes.Stloc_S || codes[i].opcode == OpCodes.Stloc)) {
-					var prevCode = codes[i - 1];
-					if (prevCode.opcode == OpCodes.Call && 
-					    prevCode.operand != null &&
-					    prevCode.operand.ToString()?.Contains("GetDirectories") == true) {
-						// Inject sorting right after directories stloc
+				if (injected) continue;
+				if (i > 0 && (codes[i].opcode == OpCodes.Stloc_S || codes[i].opcode == OpCodes.Stloc)) {
+					var prev = codes[i - 1];
+					if (prev.opcode == OpCodes.Call && prev.operand?.ToString()?.Contains("GetDirectories") == true) {
 						if (directoriesLocalIndex >= 0) {
 							newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, directoriesLocalIndex));
 							newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
@@ -289,49 +119,38 @@ private static ModConfiguration? Config;
 							newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, filesLocalIndex));
 							newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
 						}
-						injectedSorting = true;
+						injected = true;
 					}
 				}
 			}
+			return injected ? newCodes : codes;
+		}
 
-			// If we still haven't injected, try a simpler fallback: inject before first foreach
-			if (!injectedSorting) {
-				for (int i = codes.Count - 1; i >= 0; i--) {
-					// Look for the foreach loop start (usually a GetEnumerator or similar)
-					// Actually, let's just inject right before ToWorld as a last resort
-					if (codes[i].opcode == OpCodes.Call && 
-					    codes[i].operand != null &&
-					    codes[i].operand.ToString()?.Contains("ToWorld") == true) {
-						// Insert before ToWorld
-						int insertPos = newCodes.Count - (codes.Count - i);
-						if (insertPos < 0) insertPos = 0;
-						if (directoriesLocalIndex >= 0) {
-							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Ldloc_S, directoriesLocalIndex));
-							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Call, sortMethod));
-						}
-						if (filesLocalIndex >= 0) {
-							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Ldloc_S, filesLocalIndex));
-							newCodes.Insert(insertPos++, new CodeInstruction(OpCodes.Call, sortMethod));
-						}
-						injectedSorting = true;
-						break;
-					}
+		static void TryReadStloc(List<CodeInstruction> codes, int start, int count, ref int index) {
+			for (int j = start; j < codes.Count && j < start + count; j++) {
+				var c = codes[j];
+				if (c.opcode == OpCodes.Stloc_S && c.operand is LocalBuilder lb) {
+					index = lb.LocalIndex; break;
+				}
+				if (c.opcode == OpCodes.Stloc_S && c.operand is int idx) {
+					index = idx; break;
+				}
+				if (c.opcode == OpCodes.Stloc && c.operand is LocalBuilder lb2) {
+					index = lb2.LocalIndex; break;
+				}
+				if (c.opcode == OpCodes.Stloc && c.operand is int idx2) {
+					index = idx2; break;
 				}
 			}
-
-			return injectedSorting ? newCodes : codes;
 		}
 	}
 
 	[HarmonyPatch(typeof(FileBrowser), "OnAttach")]
 	class FileBrowser_OnAttach_Patch {
 		static void Postfix(FileBrowser __instance) {
-			// Auto-load root directory on Linux if path is empty
-			if (__instance.Engine.Platform == Platform.Linux) {
-				if (string.IsNullOrWhiteSpace(__instance.CurrentPath.Value)) {
-					__instance.CurrentPath.Value = "/";
-				}
-			}
+			if (__instance.Engine.Platform == Platform.Linux &&
+			    string.IsNullOrWhiteSpace(__instance.CurrentPath.Value))
+				__instance.CurrentPath.Value = "/";
 		}
 	}
 }
