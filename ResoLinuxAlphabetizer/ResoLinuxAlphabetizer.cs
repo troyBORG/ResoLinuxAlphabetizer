@@ -12,7 +12,7 @@ namespace ResoLinuxAlphabetizer;
 // Fixes file browser sorting on Linux - https://github.com/Yellow-Dog-Man/Resonite-Issues/issues/5156
 
 public class ResoLinuxAlphabetizer : ResoniteMod {
-	internal const string VERSION_CONSTANT = "0.0.6";
+	internal const string VERSION_CONSTANT = "0.0.7";
 	public override string Name => "ResoLinuxAlphabetizer";
 	public override string Author => "troyBORG";
 	public override string Version => VERSION_CONSTANT;
@@ -35,8 +35,25 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 		if (Config != null)
 			Config.Save(true);
 
-		new Harmony("com.troyborg.ResoLinuxAlphabetizer").PatchAll();
-		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.Refresh to sort files and directories alphabetically (case-insensitive by name).");
+		var harmony = new Harmony("com.troyborg.ResoLinuxAlphabetizer");
+		harmony.PatchAll();
+
+		// Decompiled Refresh is async Task: the real body (GetFiles/GetDirectories) lives in the
+		// compiler-generated state machine's MoveNext only. We patch MoveNext (not Refresh).
+		foreach (var nested in typeof(FileBrowser).GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)) {
+			string? name = nested.Name;
+			if (name == null || !name.StartsWith("<Refresh>d__", StringComparison.Ordinal)) continue;
+			var moveNext = nested.GetMethod("MoveNext", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+			if (moveNext == null) continue;
+			var transpiler = typeof(FileBrowser_Refresh_Patch).GetMethod(nameof(FileBrowser_Refresh_Patch.Transpiler), BindingFlags.Static | BindingFlags.Public);
+			if (transpiler != null) {
+				harmony.Patch(moveNext, transpiler: new HarmonyMethod(transpiler));
+				Msg($"ResoLinuxAlphabetizer: Patched async state machine {name}.MoveNext for sorting.");
+				break;
+			}
+		}
+
+		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.Refresh async body to sort files and directories alphabetically (case-insensitive by name, quotes stripped).");
 		Msg("ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux.");
 		Msg("ResoLinuxAlphabetizer: Toggle \"Enabled\" in Mod Settings to turn sorting on/off.");
 	}
@@ -46,84 +63,75 @@ public class ResoLinuxAlphabetizer : ResoniteMod {
 		return Config.TryGetValue(KEY_ENABLED, out bool enabled) && enabled;
 	}
 
-	// Sort in place: case-insensitive by filename
+	// Name used for sorting: filename only, with leading/trailing quotes stripped.
+	// (Wine/shell can return quoted names like '!! Resonite'; we sort by the actual name.)
+	private static string GetSortName(string path) {
+		string name = string.IsNullOrEmpty(Path.GetFileName(path)) ? path : Path.GetFileName(path);
+		return name.Trim().Trim('\'', '"');
+	}
+
+	// Sort in place: case-insensitive by filename (quotes stripped for comparison)
 	private static void SortByFileName(string[]? array) {
 		if (array == null || array.Length == 0 || !IsSortingEnabled())
 			return;
-		Array.Sort(array, (a, b) => {
-			string na = string.IsNullOrEmpty(Path.GetFileName(a)) ? a : Path.GetFileName(a);
-			string nb = string.IsNullOrEmpty(Path.GetFileName(b)) ? b : Path.GetFileName(b);
-			return FileNameComparer.Compare(na, nb);
-		});
+		Array.Sort(array, (a, b) => FileNameComparer.Compare(GetSortName(a), GetSortName(b)));
 	}
 
-	private static void SortListByFileName(List<string>? list) {
-		if (list == null || list.Count == 0 || !IsSortingEnabled())
-			return;
-		list.Sort((a, b) => {
-			string na = string.IsNullOrEmpty(Path.GetFileName(a)) ? a : Path.GetFileName(a);
-			string nb = string.IsNullOrEmpty(Path.GetFileName(b)) ? b : Path.GetFileName(b);
-			return FileNameComparer.Compare(na, nb);
-		});
-	}
-
-	// Stupid-simple: after Refresh(), sort any string[] or List<string> on the browser instance
-	[HarmonyPatch(typeof(FileBrowser), "Refresh")]
+	// Decompile: Refresh is async Task — GetFiles/GetDirectories live in state machine MoveNext only.
+	// files/directories are locals (not instance fields), so we only patch MoveNext via transpiler.
 	class FileBrowser_Refresh_Patch {
-		static void Postfix(FileBrowser __instance) {
-			if (!IsSortingEnabled()) return;
-			var t = __instance.GetType();
-			foreach (var f in t.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)) {
-				if (f.FieldType == typeof(string[])) {
-					var arr = f.GetValue(__instance) as string[];
-					SortByFileName(arr);
-				} else if (f.FieldType == typeof(List<string>)) {
-					var list = f.GetValue(__instance) as List<string>;
-					SortListByFileName(list);
-				}
-			}
-		}
-
-		// Backup: inject sort calls after GetFiles/GetDirectories if reflection didn't find fields
-		static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+		// Decompile: FrooxEngine/FileBrowser.cs Refresh (async). files/directories are locals, not fields.
+		// Source order: GetFiles then GetDirectories (lines 305-306); UI: directories then files (334, 345).
+		// Inject after the later of the two stlocs so both arrays are assigned.
+		public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
 			var codes = instructions.ToList();
 			var sortMethod = typeof(ResoLinuxAlphabetizer).GetMethod("SortByFileName", BindingFlags.NonPublic | BindingFlags.Static);
 			if (sortMethod == null) return codes;
 
 			int filesLocalIndex = -1, directoriesLocalIndex = -1;
+			int injectAfterIndex = -1; // inject after this instruction index (the later of the two stlocs)
 
 			for (int i = 0; i < codes.Count; i++) {
 				var code = codes[i];
 				if (code.opcode != OpCodes.Call || code.operand?.ToString() == null) continue;
 
 				string call = code.operand.ToString();
-				if (call.Contains("GetFiles"))
+				if (call.Contains("GetFiles")) {
 					TryReadStloc(codes, i + 1, 5, ref filesLocalIndex);
-				else if (call.Contains("GetDirectories"))
+					// Mark position after this stloc (so files is assigned)
+					for (int j = i + 1; j < codes.Count && j < i + 6; j++)
+						if (codes[j].opcode == OpCodes.Stloc_S || codes[j].opcode == OpCodes.Stloc) {
+							injectAfterIndex = Math.Max(injectAfterIndex, j);
+							break;
+						}
+				} else if (call.Contains("GetDirectories")) {
 					TryReadStloc(codes, i + 1, 5, ref directoriesLocalIndex);
+					for (int j = i + 1; j < codes.Count && j < i + 6; j++)
+						if (codes[j].opcode == OpCodes.Stloc_S || codes[j].opcode == OpCodes.Stloc) {
+							injectAfterIndex = Math.Max(injectAfterIndex, j);
+							break;
+						}
+				}
 			}
 
+			if (injectAfterIndex < 0 || (filesLocalIndex < 0 && directoriesLocalIndex < 0))
+				return codes;
+
 			var newCodes = new List<CodeInstruction>();
-			bool injected = false;
 			for (int i = 0; i < codes.Count; i++) {
 				newCodes.Add(codes[i]);
-				if (injected) continue;
-				if (i > 0 && (codes[i].opcode == OpCodes.Stloc_S || codes[i].opcode == OpCodes.Stloc)) {
-					var prev = codes[i - 1];
-					if (prev.opcode == OpCodes.Call && prev.operand?.ToString()?.Contains("GetDirectories") == true) {
-						if (directoriesLocalIndex >= 0) {
-							newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, directoriesLocalIndex));
-							newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
-						}
-						if (filesLocalIndex >= 0) {
-							newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, filesLocalIndex));
-							newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
-						}
-						injected = true;
+				if (i == injectAfterIndex) {
+					if (directoriesLocalIndex >= 0) {
+						newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, directoriesLocalIndex));
+						newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
+					}
+					if (filesLocalIndex >= 0) {
+						newCodes.Add(new CodeInstruction(OpCodes.Ldloc_S, filesLocalIndex));
+						newCodes.Add(new CodeInstruction(OpCodes.Call, sortMethod));
 					}
 				}
 			}
-			return injected ? newCodes : codes;
+			return newCodes;
 		}
 
 		static void TryReadStloc(List<CodeInstruction> codes, int start, int count, ref int index) {
