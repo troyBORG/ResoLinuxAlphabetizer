@@ -4,7 +4,9 @@ A [ResoniteModLoader](https://github.com/resonite-modding-group/ResoniteModLoade
 
 ## Problem
 
-On Linux, files and folders in the file browser are not sorted alphabetically (they appear in a random order). The file browser also doesn't automatically load the root directory ("/") when opened. This mod fixes both.
+On Linux, files and folders in the file browser are not sorted alphabetically (they appear in a random order). Linux filesystems do not guarantee any order when listing a directory—[`readdir()` provides no ordering guarantee](https://stackoverflow.com/questions/8977441/does-readdir-guarantee-an-order)—so the application must sort the list itself, [like `ls` does](https://serverfault.com/questions/406229/ensuring-a-repeatable-directory-ordering-in-linux). This mod does that. The file browser also doesn't automatically load the root directory ("/") when opened; the mod fixes both.
+
+The weird ordering is filesystem-driver dependent (e.g. FAT32 doesn’t have the issue; ext4/Linux does). You can see the raw listing as given by `readdir` with e.g. `find .` in the directory. You can’t force the filesystem or `readdir()` to return alphabetical order—there’s no POSIX or driver option for that. The only way is to sort the list after reading it; this mod does that.
 
 Related issue: [folders sorted wrong #5156](https://github.com/Yellow-Dog-Man/Resonite-Issues/issues/5156)
 
@@ -25,6 +27,10 @@ Related issue: [folders sorted wrong #5156](https://github.com/Yellow-Dog-Man/Re
 3. Start the game. In the log you should see:
    - `ResoLinuxAlphabetizer: Patched async state machine <Refresh>d__XX.MoveNext for sorting.`
    - `ResoLinuxAlphabetizer: Patched FileBrowser.OnAttach to auto-load root directory on Linux.`
+
+## Troubleshooting (if sorting doesn’t appear)
+
+Check the log: you should see **"Patched async state machine &lt;Refresh&gt;d__XX.MoveNext"**. If not, the engine build may differ and the patch didn’t apply. When asking for help, share expected vs actual behavior, steps to reproduce, and the `ResoLinuxAlphabetizer:` lines from the log.
 
 ## Building
 
